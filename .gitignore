@@ -1,0 +1,34 @@
+# OS generated files
+.DS_Store
+
+# IDE project files
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Local tools and configs
+.fastRequest/
+.spec-workflow/
+
+# Logs
+logs/
+*.log
+
+# Java build output
+middle-platform/target/
+
+# Node/Next.js build output
+front/node_modules/
+front/.next/
+front/dist/
+front/out/
+front/.turbo/
+front/.vercel/
+front/.cache/
+
+# Environment files
+.env
+.env.*
+front/.env
+front/.env.*
