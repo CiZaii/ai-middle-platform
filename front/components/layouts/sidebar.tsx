@@ -62,13 +62,13 @@ const menuItems: MenuItem[] = [
         href: '/model-config/business',
         color: 'text-green-500',
       },
+      {
+        title: 'Prompt 管理',
+        icon: FileText,
+        href: '/prompts',
+        color: 'text-pink-600',
+      },
     ],
-  },
-  {
-    title: 'Prompt 管理',
-    icon: FileText,
-    href: '/prompts',
-    color: 'text-pink-600',
   },
   {
     title: '用户管理',
@@ -119,8 +119,9 @@ export function Sidebar() {
           <ul>
             {menuItems.map((item) => {
               const Icon = item.icon;
-              const active = isActive(item.href);
               const hasChildren = item.children && item.children.length > 0;
+              const childActive = hasChildren ? item.children.some((child) => isActive(child.href)) : false;
+              const active = isActive(item.href) || childActive;
               const isExpanded = expandedMenus.has(item.href);
 
               return (

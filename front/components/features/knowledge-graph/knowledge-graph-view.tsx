@@ -24,32 +24,31 @@ interface KnowledgeGraphViewProps {
   graphData?: KnowledgeGraphData;
 }
 
-// 定义不同节点类型的颜色
-const nodeTypeColors: Record<string, { fill: string; stroke: string }> = {
-  document: {
-    fill: '#667eea',
-    stroke: '#764ba2',
-  },
-  module: {
-    fill: '#f093fb',
-    stroke: '#f5576c',
-  },
-  endpoint: {
-    fill: '#4facfe',
-    stroke: '#00f2fe',
-  },
-  schema: {
-    fill: '#43e97b',
-    stroke: '#38f9d7',
-  },
-  field: {
-    fill: '#fa709a',
-    stroke: '#fee140',
-  },
-  default: {
-    fill: '#6366f1',
-    stroke: '#8b5cf6',
-  },
+// 生成随机颜色的函数
+const generateRandomColor = (seed: string): { fill: string; stroke: string } => {
+  // 使用字符串哈希生成稳定的随机色相
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash % 360);
+  
+  // 生成明亮的填充色和稍深的边框色
+  const fill = `hsl(${hue}, 70%, 65%)`;
+  const stroke = `hsl(${hue}, 75%, 45%)`;
+  
+  return { fill, stroke };
+};
+
+// 存储已生成的颜色，确保同一类型颜色一致
+const typeColorCache: Record<string, { fill: string; stroke: string }> = {};
+
+// 获取节点类型的颜色（同一类型返回相同颜色）
+const getNodeTypeColor = (type: string): { fill: string; stroke: string } => {
+  if (!typeColorCache[type]) {
+    typeColorCache[type] = generateRandomColor(type);
+  }
+  return typeColorCache[type];
 };
 
 export function KnowledgeGraphView({ graphData }: KnowledgeGraphViewProps) {
@@ -83,9 +82,20 @@ export function KnowledgeGraphView({ graphData }: KnowledgeGraphViewProps) {
 
     svg.call(zoom);
 
+    // 过滤掉文档节点（Document类型），只保留实体节点
+    const filteredNodes = graphData.nodes.filter((node) => node.type !== 'Document');
+    const documentNodeIds = new Set(
+      graphData.nodes.filter((node) => node.type === 'Document').map((node) => node.id)
+    );
+    
+    // 过滤掉与文档节点相关的边
+    const filteredEdges = graphData.edges.filter(
+      (edge) => !documentNodeIds.has(edge.source) && !documentNodeIds.has(edge.target)
+    );
+
     // 转换数据格式
-    const nodes = graphData.nodes.map((d) => ({ ...d }));
-    const links = graphData.edges.map((d) => ({ ...d }));
+    const nodes = filteredNodes.map((d) => ({ ...d }));
+    const links = filteredEdges.map((d) => ({ ...d }));
 
     // 创建力导向图模拟
     const simulation = d3
@@ -103,9 +113,11 @@ export function KnowledgeGraphView({ graphData }: KnowledgeGraphViewProps) {
 
     // 添加箭头标记
     const defs = svg.append('defs');
-
-    // 为每种类型创建箭头
-    Object.entries(nodeTypeColors).forEach(([type, colors]) => {
+    
+    // 收集所有节点类型并为每种类型创建箭头
+    const nodeTypes = Array.from(new Set(nodes.map((n: any) => n.type || 'default')));
+    nodeTypes.forEach((type) => {
+      const colors = getNodeTypeColor(type);
       defs
         .append('marker')
         .attr('id', `arrow-${type}`)
@@ -171,11 +183,11 @@ export function KnowledgeGraphView({ graphData }: KnowledgeGraphViewProps) {
       .append('circle')
       .attr('r', 30)
       .attr('fill', (d: any) => {
-        const colors = nodeTypeColors[d.type || 'default'] || nodeTypeColors.default;
+        const colors = getNodeTypeColor(d.type || 'default');
         return colors.fill;
       })
       .attr('stroke', (d: any) => {
-        const colors = nodeTypeColors[d.type || 'default'] || nodeTypeColors.default;
+        const colors = getNodeTypeColor(d.type || 'default');
         return colors.stroke;
       })
       .attr('stroke-width', 3)
@@ -250,7 +262,10 @@ export function KnowledgeGraphView({ graphData }: KnowledgeGraphViewProps) {
     };
   }, [graphData]);
 
-  if (!graphData || graphData.nodes.length === 0) {
+  // 过滤掉文档节点，只显示实体节点
+  const filteredNodes = graphData?.nodes.filter((node) => node.type !== 'Document') || [];
+  
+  if (!graphData || filteredNodes.length === 0) {
     return (
       <div className="h-[600px] flex items-center justify-center bg-muted/30 rounded-lg">
         <p className="text-muted-foreground">暂无知识图谱数据</p>
@@ -265,20 +280,33 @@ export function KnowledgeGraphView({ graphData }: KnowledgeGraphViewProps) {
         <div className="bg-white dark:bg-slate-800 rounded-lg p-3 shadow-sm border">
           <div className="text-xs font-semibold mb-2 text-slate-700 dark:text-slate-300">节点类型</div>
           <div className="flex flex-wrap gap-3">
-            {Object.entries(nodeTypeColors).map(([type, colors]) => (
-              <div key={type} className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{
-                    backgroundColor: colors.fill,
-                    border: `2px solid ${colors.stroke}`,
-                  }}
-                />
-                <span className="text-xs text-slate-600 dark:text-slate-400">
-                  {type === 'default' ? '默认' : type}
-                </span>
-              </div>
-            ))}
+            {Array.from(new Set(filteredNodes.map((node) => node.type || 'default'))).map((type) => {
+              const colors = getNodeTypeColor(type);
+              const typeLabels: Record<string, string> = {
+                Person: '人物',
+                Organization: '组织',
+                Product: '产品',
+                Technology: '技术',
+                Project: '项目',
+                Skill: '技能',
+                Concept: '概念',
+                default: '默认',
+              };
+              return (
+                <div key={type} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{
+                      backgroundColor: colors.fill,
+                      border: `2px solid ${colors.stroke}`,
+                    }}
+                  />
+                  <span className="text-xs text-slate-600 dark:text-slate-400">
+                    {typeLabels[type] || type}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 

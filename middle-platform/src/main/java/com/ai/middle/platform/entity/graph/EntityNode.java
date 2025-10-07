@@ -8,8 +8,6 @@ import org.springframework.data.neo4j.core.schema.Id;
 import org.springframework.data.neo4j.core.schema.Node;
 import org.springframework.data.neo4j.core.schema.Property;
 
-import java.util.Map;
-
 @Data
 @Builder
 @NoArgsConstructor
@@ -25,8 +23,20 @@ public class EntityNode {
     @Property("type")
     private String type;
 
-    @Property("attributes")
-    private Map<String, Object> attributes;
+    @Property("externalId")
+    private String externalId;
+
+    @Property("description")
+    private String description;
+
+    @Property("aliases")
+    private String[] aliases;
+
+    @Property("sourcePages")
+    private int[] sourcePages;
+
+    @Property("documentId")
+    private String documentId;
 
     @Property("relationType")
     private String relationType;

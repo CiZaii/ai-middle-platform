@@ -1486,13 +1486,24 @@ public class AIProcessServiceImpl implements AIProcessService {
     }
 
     private void persistKnowledgeGraph(FileDetail fileDetail, KnowledgeGraphData graphData) {
-        documentNodeRepository.deleteDocumentWithRelations(fileDetail.getId());
+        log.info("开始持久化知识图谱: fileId={}, entities={}, relationships={}", 
+            fileDetail.getId(), graphData.entities().size(), graphData.relationships().size());
+        
+        // 删除旧数据
+        try {
+            documentNodeRepository.deleteDocumentWithRelations(fileDetail.getId());
+            log.info("删除旧知识图谱数据成功: fileId={}", fileDetail.getId());
+        } catch (Exception e) {
+            log.error("删除旧知识图谱数据失败: fileId={}", fileDetail.getId(), e);
+            throw new BusinessException("删除旧知识图谱数据失败: " + e.getMessage());
+        }
 
         FileDetailAttributes attributes = FileDetailAttrUtils.parse(fileDetail.getAttr());
         String documentName = StringUtils.hasText(fileDetail.getOriginalFilename())
                 ? fileDetail.getOriginalFilename()
                 : fileDetail.getFilename();
 
+        // 保存文档节点
         DocumentNode documentNode = DocumentNode.builder()
                 .id(fileDetail.getId())
                 .name(documentName)
@@ -1500,12 +1511,15 @@ public class AIProcessServiceImpl implements AIProcessService {
                 .createdAt(LocalDateTime.now())
                 .build();
         documentNodeRepository.save(documentNode);
+        log.info("保存文档节点成功: id={}, name={}", documentNode.getId(), documentNode.getName());
 
         if (graphData.entities().isEmpty()) {
+            log.warn("知识图谱没有实体数据: fileId={}", fileDetail.getId());
             return;
         }
 
         Map<String, String> entityNodeLookup = new HashMap<>();
+        int savedEntityCount = 0;
         for (GraphEntity entity : graphData.entities()) {
             String externalId = StringUtils.hasText(entity.id()) ? entity.id() : "entity-" + IdGenerator.simpleUUID();
             String normalizedExternalId = normalizeEntityIdentifier(externalId);
@@ -1514,50 +1528,68 @@ public class AIProcessServiceImpl implements AIProcessService {
             }
             String nodeId = buildEntityNodeId(fileDetail.getId(), normalizedExternalId);
 
-            Map<String, Object> entityAttributes = new HashMap<>();
-            entityAttributes.put("externalId", externalId);
-            if (StringUtils.hasText(entity.description())) {
-                entityAttributes.put("description", entity.description());
-            }
+            // 准备aliases数组
+            String[] aliasArray = null;
             if (entity.aliases() != null && !entity.aliases().isEmpty()) {
-                String[] aliasArray = new LinkedHashSet<>(entity.aliases())
+                aliasArray = new LinkedHashSet<>(entity.aliases())
                         .stream()
                         .filter(StringUtils::hasText)
                         .map(String::trim)
                         .toArray(String[]::new);
-                if (aliasArray.length > 0) {
-                    entityAttributes.put("aliases", aliasArray);
+                if (aliasArray.length == 0) {
+                    aliasArray = null;
                 }
             }
+
+            // 准备sourcePages数组
+            int[] pageArray = null;
             if (entity.sourcePages() != null && !entity.sourcePages().isEmpty()) {
-                int[] pageArray = entity.sourcePages().stream()
+                pageArray = entity.sourcePages().stream()
                         .filter(Objects::nonNull)
                         .mapToInt(Integer::intValue)
                         .distinct()
                         .sorted()
                         .toArray();
-                if (pageArray.length > 0) {
-                    entityAttributes.put("sourcePages", pageArray);
+                if (pageArray.length == 0) {
+                    pageArray = null;
                 }
             }
-            entityAttributes.put("documentId", fileDetail.getId());
 
+            // 直接设置各个字段而不是使用Map
             EntityNode entityNode = EntityNode.builder()
                     .id(nodeId)
                     .name(entity.name())
                     .type(StringUtils.hasText(entity.type()) ? entity.type() : "concept")
-                    .attributes(entityAttributes)
+                    .externalId(externalId)
+                    .description(entity.description())
+                    .aliases(aliasArray)
+                    .sourcePages(pageArray)
+                    .documentId(fileDetail.getId())
                     .build();
-            entityNodeRepository.save(entityNode);
+            
+            try {
+                entityNodeRepository.save(entityNode);
+                savedEntityCount++;
+                log.debug("保存实体节点成功: id={}, name={}, type={}", nodeId, entity.name(), entity.type());
+            } catch (Exception e) {
+                log.error("保存实体节点失败: id={}, name={}", nodeId, entity.name(), e);
+                throw new BusinessException("保存实体节点失败: " + e.getMessage());
+            }
 
-            neo4jClient.query("""
-                    MATCH (d:Document {id: $documentId})
-                    MATCH (e:Entity {id: $entityId})
-                    MERGE (e)-[:BELONGS_TO]->(d)
-                    """)
-                    .bind(fileDetail.getId()).to("documentId")
-                    .bind(nodeId).to("entityId")
-                    .run();
+            try {
+                neo4jClient.query("""
+                        MATCH (d:Document {id: $documentId})
+                        MATCH (e:Entity {id: $entityId})
+                        MERGE (e)-[:BELONGS_TO]->(d)
+                        """)
+                        .bind(fileDetail.getId()).to("documentId")
+                        .bind(nodeId).to("entityId")
+                        .run();
+                log.debug("创建BELONGS_TO关系成功: entity={} -> document={}", nodeId, fileDetail.getId());
+            } catch (Exception e) {
+                log.error("创建BELONGS_TO关系失败: entity={} -> document={}", nodeId, fileDetail.getId(), e);
+                throw new BusinessException("创建BELONGS_TO关系失败: " + e.getMessage());
+            }
 
             registerEntityLookup(entityNodeLookup, externalId, nodeId, true);
             registerEntityLookup(entityNodeLookup, normalizedExternalId, nodeId, true);
@@ -1568,11 +1600,19 @@ public class AIProcessServiceImpl implements AIProcessService {
                 }
             }
         }
+        
+        log.info("保存实体节点完成: fileId={}, 成功数={}/{}", 
+            fileDetail.getId(), savedEntityCount, graphData.entities().size());
 
+        // 保存关系
+        int savedRelationshipCount = 0;
         for (GraphRelationship relationship : graphData.relationships()) {
             String sourceId = resolveEntityNodeId(entityNodeLookup, relationship.fromId(), relationship.fromName());
             String targetId = resolveEntityNodeId(entityNodeLookup, relationship.toId(), relationship.toName());
             if (!StringUtils.hasText(sourceId) || !StringUtils.hasText(targetId)) {
+                log.debug("跳过关系（实体未找到）: from={}/{} -> to={}/{}", 
+                    relationship.fromId(), relationship.fromName(), 
+                    relationship.toId(), relationship.toName());
                 continue;
             }
 
@@ -1580,7 +1620,9 @@ public class AIProcessServiceImpl implements AIProcessService {
             List<Integer> sourcePages = relationship.sourcePages() == null
                     ? List.of()
                     : new ArrayList<>(new LinkedHashSet<>(relationship.sourcePages()));
-            neo4jClient.query(String.format("""
+            
+            try {
+                neo4jClient.query(String.format("""
                     MATCH (source:Entity {id: $sourceId})
                     MATCH (target:Entity {id: $targetId})
                     MERGE (source)-[r:%s]->(target)
@@ -1594,15 +1636,26 @@ public class AIProcessServiceImpl implements AIProcessService {
                     .bind(sourcePages)
                     .to("sourcePages")
                     .run();
+                savedRelationshipCount++;
+                log.debug("保存关系成功: {} -[{}]-> {}", sourceId, relationshipType, targetId);
+            } catch (Exception e) {
+                log.error("保存关系失败: {} -[{}]-> {}", sourceId, relationshipType, targetId, e);
+                throw new BusinessException("保存关系失败: " + e.getMessage());
+            }
         }
+        
+        log.info("知识图谱持久化完成: fileId={}, 实体={}/{}, 关系={}/{}", 
+            fileDetail.getId(), savedEntityCount, graphData.entities().size(), 
+            savedRelationshipCount, graphData.relationships().size());
     }
 
     private String sanitizeRelationshipType(String type) {
         if (!StringUtils.hasText(type)) {
-            return "RELATED_TO";
+            return "关联";
         }
-        String sanitized = type.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "_");
-        return StringUtils.hasText(sanitized) ? sanitized : "RELATED_TO";
+        // 保留中文、英文、数字，去除特殊字符
+        String sanitized = type.trim().replaceAll("[\\s\\p{Punct}]+", "_");
+        return StringUtils.hasText(sanitized) ? sanitized : "关联";
     }
 
     private String extractJson(String response) {

@@ -55,6 +55,7 @@ import org.dromara.x.file.storage.core.FileStorageService;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.neo4j.core.Neo4jClient;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -80,6 +81,7 @@ public class FileServiceImpl implements FileService {
     private final FileStorageService fileStorageService;
     private final DocumentProcessService documentProcessService;
     private final AIProcessService aiProcessService;
+    private final JdbcTemplate jdbcTemplate;
 
     @Value("${app.file.max-size}")
     private Long maxFileSize;
@@ -220,16 +222,89 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException("文件不存在");
         }
 
+        log.info("开始删除文件及其所有关联数据: fileId={}", id);
+
+        // 1. 删除文档页面记录和图片（OCR相关）
+        log.info("删除文档页面和OCR图片: fileId={}", id);
+        cleanupExistingDocumentImages(id);
+        
+        // 删除文档记录
+        int docDeleteCount = documentMapper.delete(new LambdaQueryWrapper<KbDocument>()
+                .eq(KbDocument::getFileId, id));
+        log.info("删除文档记录: fileId={}, count={}", id, docDeleteCount);
+
+        // 2. 删除Neo4j中的知识图谱数据（文档节点和实体节点）
+        log.info("删除Neo4j知识图谱数据: fileId={}", id);
+        try {
+            // 删除文档节点及其关系
+            documentNodeRepository.deleteDocumentWithRelations(id);
+            
+            // 删除该文件相关的实体节点（如果实体只属于这个文档）
+            String deleteEntitiesQuery = 
+                "MATCH (e:Entity)-[:BELONGS_TO]->(d:Document {fileId: $fileId}) " +
+                "WHERE NOT EXISTS { " +
+                "  MATCH (e)-[:BELONGS_TO]->(other:Document) " +
+                "  WHERE other.fileId <> $fileId " +
+                "} " +
+                "DETACH DELETE e";
+            neo4jClient.query(deleteEntitiesQuery)
+                    .bind(id).to("fileId")
+                    .run();
+            log.info("删除Neo4j实体节点完成: fileId={}", id);
+        } catch (Exception e) {
+            log.error("删除Neo4j数据失败: fileId={}", id, e);
+        }
+
+        // 3. 删除问答对数据
+        log.info("删除问答对数据: fileId={}", id);
+        int qaPairDeleteCount = qaPairMapper.delete(new LambdaQueryWrapper<KbQaPair>()
+                .eq(KbQaPair::getFileId, id));
+        log.info("删除问答对: fileId={}, count={}", id, qaPairDeleteCount);
+
+        // 4. 删除向量化数据（从vector_store表中删除）
+        log.info("删除向量化数据: fileId={}", id);
+        try {
+            String deleteVectorSql = 
+                "DELETE FROM vector_store WHERE metadata->>'file_id' = ?";
+            int vectorDeleteCount = jdbcTemplate.update(deleteVectorSql, id);
+            log.info("删除向量数据: fileId={}, count={}", id, vectorDeleteCount);
+        } catch (Exception e) {
+            log.error("删除向量数据失败: fileId={}", id, e);
+        }
+
+        // 5. 删除MinIO中的原始文件
+        log.info("删除MinIO原始文件: fileId={}, url={}", id, file.getUrl());
+        try {
+            if (StringUtils.hasText(file.getUrl())) {
+                fileStorageService.delete(file.getUrl());
+                log.info("MinIO文件删除成功: fileId={}", id);
+            }
+        } catch (Exception e) {
+            log.error("删除MinIO文件失败: fileId={}, url={}", id, file.getUrl(), e);
+        }
+
+        // 6. 删除缩略图（如果有）
+        if (StringUtils.hasText(file.getThUrl())) {
+            try {
+                fileStorageService.delete(file.getThUrl());
+                log.info("缩略图删除成功: fileId={}", id);
+            } catch (Exception e) {
+                log.error("删除缩略图失败: fileId={}, url={}", id, file.getThUrl(), e);
+            }
+        }
+
+        // 7. 删除文件记录（包含标签等元数据）
+        log.info("删除文件记录: fileId={}", id);
         fileDetailMapper.deleteById(file.getId());
 
+        // 8. 更新知识库文件计数
         Long kbInternalId = parseLong(file.getObjectId());
         KbKnowledgeBase knowledgeBase = kbInternalId == null ? null : knowledgeBaseMapper.selectById(kbInternalId);
         if (knowledgeBase != null) {
             updateKnowledgeBaseFileCount(knowledgeBase, -1);
         }
 
-        cleanupExistingDocumentImages(id);
-        documentNodeRepository.deleteDocumentWithRelations(id);
+        log.info("文件删除完成，所有关联数据已清理: fileId={}", id);
     }
 
     @Override
@@ -262,18 +337,24 @@ public class FileServiceImpl implements FileService {
     }
 
     private void restartOcrProcessing(FileDetail file) {
+        // 清理现有文档页面和图片
         cleanupExistingDocumentImages(file.getId());
 
+        // 只重置OCR状态，不影响其他处理状态（向量化、问答对、知识图谱）
         FileDetailAttributes attributes = FileDetailAttrUtils.parse(file.getAttr());
         attributes.setOcrStatus(ProcessingStatus.PENDING.getCode());
-        attributes.setVectorizationStatus(ProcessingStatus.PENDING.getCode());
-        attributes.setQaPairsStatus(ProcessingStatus.PENDING.getCode());
-        attributes.setKnowledgeGraphStatus(ProcessingStatus.PENDING.getCode());
+        // 不重置其他状态，让它们保持独立
+        // attributes.setVectorizationStatus(...);  // 保持不变
+        // attributes.setQaPairsStatus(...);         // 保持不变
+        // attributes.setKnowledgeGraphStatus(...);  // 保持不变
         attributes.setErrorMessage(null);
         file.setAttr(FileDetailAttrUtils.toJson(attributes));
         fileDetailMapper.updateById(file);
 
+        // 重新创建文档页面并触发OCR
         createDocumentPages(file, file.getUrl());
+        
+        log.info("重新触发OCR处理，其他状态保持不变: fileId={}", file.getId());
     }
 
     private void triggerKnowledgeGraphProcessing(FileDetail file) {
@@ -579,6 +660,7 @@ public class FileServiceImpl implements FileService {
     }
 
     private KnowledgeGraphDTO buildKnowledgeGraph(String fileId) {
+        // 查询文档节点
         DocumentNode documentNode = documentNodeRepository.findByFileId(fileId);
         if (documentNode == null) {
             return null;
@@ -586,50 +668,68 @@ public class FileServiceImpl implements FileService {
 
         List<KnowledgeGraphDTO.GraphNodeDTO> nodes = new ArrayList<>();
         List<KnowledgeGraphDTO.GraphEdgeDTO> edges = new ArrayList<>();
-        nodes.add(KnowledgeGraphDTO.GraphNodeDTO.builder()
-                .id(documentNode.getId())
-                .label(documentNode.getName())
-                .type("document")
-                .build());
-
+        
+        // 不添加文档节点，只添加实体节点
+        log.debug("buildKnowledgeGraph: fileId={}, skipping document node", fileId);
+        
+        // 添加所有实体节点（使用 neo4jClient 直接查询）
         Set<String> processedEntityIds = new HashSet<>();
-        List<Object> rawEntities = documentNodeRepository.findEntitiesByDocumentId(fileId);
-        for (Object rawEntity : rawEntities) {
-            EntityNode entityNode = extractEntityNode(rawEntity);
-            if (entityNode == null || processedEntityIds.contains(entityNode.getId())) {
+        Collection<Map<String, Object>> entityMaps = neo4jClient.query("""
+                MATCH (d:Document {id: $fileId})<-[:BELONGS_TO]-(e:Entity)
+                RETURN e.id AS id, 
+                       e.name AS name, 
+                       e.type AS type
+                """)
+                .bind(fileId).to("fileId")
+                .fetch().all();
+        
+        log.info("buildKnowledgeGraph: fileId={}, found {} entities from Neo4j", fileId, entityMaps.size());
+        
+        for (Map<String, Object> entityMap : entityMaps) {
+            String entityId = toStringValue(entityMap.get("id"));
+            String entityName = toStringValue(entityMap.get("name"));
+            String entityType = toStringValue(entityMap.get("type"));
+            
+            if (!StringUtils.hasText(entityId)) {
+                log.warn("buildKnowledgeGraph: skipping entity with null id, name={}", entityName);
+                continue;
+            }
+            
+            if (processedEntityIds.contains(entityId)) {
+                log.debug("buildKnowledgeGraph: skipping duplicate entity id={}", entityId);
                 continue;
             }
 
-            processedEntityIds.add(entityNode.getId());
+            processedEntityIds.add(entityId);
             nodes.add(KnowledgeGraphDTO.GraphNodeDTO.builder()
-                    .id(entityNode.getId())
-                    .label(entityNode.getName())
-                    .type(entityNode.getType())
+                    .id(entityId)
+                    .label(entityName)
+                    .type(entityType)
                     .build());
-            String relationLabel = StringUtils.hasText(entityNode.getRelationType())
-                    ? entityNode.getRelationType()
-                    : "BELONGS_TO";
-            edges.add(KnowledgeGraphDTO.GraphEdgeDTO.builder()
-                    .source(documentNode.getId())
-                    .target(entityNode.getId())
-                    .label(relationLabel)
-                    .build());
+            
+            // 不添加文档到实体的关系
+            
+            log.debug("buildKnowledgeGraph: added entity node id={}, name={}, type={}", 
+                entityId, entityName, entityType);
         }
 
+        // 查询实体之间的关系（通过BELONGS_TO关系找到属于该文档的实体，然后查询它们之间的关系）
         if (!processedEntityIds.isEmpty()) {
             Set<String> relationshipEdgeKeys = new HashSet<>();
             Collection<Map<String, Object>> relations = neo4jClient.query("""
-                    MATCH (source:Entity)-[rel]->(target:Entity)
-                    WHERE source.attributes.documentId = $documentId
-                      AND target.attributes.documentId = $documentId
-                      AND type(rel) <> 'BELONGS_TO'
+                    MATCH (d:Document {id: $fileId})<-[:BELONGS_TO]-(source:Entity)
+                    MATCH (d)<-[:BELONGS_TO]-(target:Entity)
+                    MATCH (source)-[rel]->(target)
+                    WHERE type(rel) <> 'BELONGS_TO'
                     RETURN source.id AS sourceId,
                            target.id AS targetId,
                            type(rel) AS relationType,
                            rel.description AS description
                     """)
-                    .bind(fileId).to("documentId")
+                    .bind(fileId).to("fileId")
                     .fetch().all();
+
+            log.debug("buildKnowledgeGraph: found {} relationships", relations.size());
 
             for (Map<String, Object> relation : relations) {
                 String sourceId = toStringValue(relation.get("sourceId"));
@@ -638,23 +738,32 @@ public class FileServiceImpl implements FileService {
                     continue;
                 }
                 if (!processedEntityIds.contains(sourceId) || !processedEntityIds.contains(targetId)) {
+                    log.debug("buildKnowledgeGraph: skipping relation with missing entity: {} -> {}", sourceId, targetId);
                     continue;
                 }
 
                 String relationType = toStringValue(relation.get("relationType"));
+                String description = toStringValue(relation.get("description"));
                 String edgeKey = sourceId + "->" + targetId + "::" + relationType;
                 if (!relationshipEdgeKeys.add(edgeKey)) {
                     continue;
                 }
 
-                String label = StringUtils.hasText(relationType) ? relationType : "RELATED_TO";
+                // 优先使用description，如果为空则使用relationType，最后兜底使用"关联"
+                String label = StringUtils.hasText(description) ? description : 
+                              (StringUtils.hasText(relationType) ? relationType : "关联");
                 edges.add(KnowledgeGraphDTO.GraphEdgeDTO.builder()
                         .source(sourceId)
                         .target(targetId)
                         .label(label)
                         .build());
+                
+                log.debug("buildKnowledgeGraph: added edge {} -[{}]-> {}", sourceId, label, targetId);
             }
         }
+
+        log.info("buildKnowledgeGraph: completed for fileId={}, nodes={} entities, edges={}", 
+            fileId, processedEntityIds.size(), edges.size());
 
         return new KnowledgeGraphDTO(nodes, edges);
     }
@@ -669,7 +778,30 @@ public class FileServiceImpl implements FileService {
             entityNode.setId(toStringValue(map.get("id")));
             entityNode.setName(toStringValue(map.get("name")));
             entityNode.setType(toStringValue(map.get("type")));
+            entityNode.setExternalId(toStringValue(map.get("externalId")));
+            entityNode.setDescription(toStringValue(map.get("description")));
+            entityNode.setDocumentId(toStringValue(map.get("documentId")));
             entityNode.setRelationType(toStringValue(map.get("relationType")));
+            
+            // 处理aliases数组
+            Object aliasesObj = map.get("aliases");
+            if (aliasesObj instanceof String[]) {
+                entityNode.setAliases((String[]) aliasesObj);
+            }
+            
+            // 处理sourcePages数组
+            Object sourcePagesObj = map.get("sourcePages");
+            if (sourcePagesObj instanceof int[]) {
+                entityNode.setSourcePages((int[]) sourcePagesObj);
+            } else if (sourcePagesObj instanceof long[]) {
+                long[] longArray = (long[]) sourcePagesObj;
+                int[] intArray = new int[longArray.length];
+                for (int i = 0; i < longArray.length; i++) {
+                    intArray[i] = (int) longArray[i];
+                }
+                entityNode.setSourcePages(intArray);
+            }
+            
             return entityNode;
         }
         return null;
