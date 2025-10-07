@@ -8,7 +8,7 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://104.129.12.227:5432/ai_middle_platform
+    url: jdbc:postgresql://${DB_HOST}:5432/ai_middle_platform
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:123456}
     hikari:
