@@ -30,5 +30,7 @@ front/.cache/
 # Environment files
 .env
 .env.*
+*.env
 front/.env
 front/.env.*
+middle-platform/src/main/resources/application-dev.env

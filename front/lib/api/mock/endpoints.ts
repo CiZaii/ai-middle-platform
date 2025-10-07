@@ -1,0 +1,111 @@
+import { Endpoint, Model, Provider } from '@/types/model-config';
+import { mockUsers } from './users';
+import { mockBusinesses } from './businesses';
+
+const models: Model[] = [
+  { id: 'model-1', name: 'gpt-4-turbo', provider: Provider.OPENAI, description: 'GPT-4 Turbo 最新版本' },
+  { id: 'model-2', name: 'gpt-4', provider: Provider.OPENAI, description: 'GPT-4 标准版' },
+  { id: 'model-3', name: 'gpt-3.5-turbo', provider: Provider.OPENAI, description: 'GPT-3.5 Turbo' },
+  { id: 'model-4', name: 'claude-3-opus', provider: Provider.CLAUDE, description: 'Claude 3 Opus 最强版本' },
+  { id: 'model-5', name: 'claude-3-sonnet', provider: Provider.CLAUDE, description: 'Claude 3 Sonnet 平衡版本' },
+  { id: 'model-6', name: 'claude-3-haiku', provider: Provider.CLAUDE, description: 'Claude 3 Haiku 快速版本' },
+  { id: 'model-7', name: 'gemini-pro', provider: Provider.GEMINI, description: 'Gemini Pro' },
+  { id: 'model-8', name: 'gemini-ultra', provider: Provider.GEMINI, description: 'Gemini Ultra' },
+];
+
+export const mockEndpoints: Endpoint[] = [
+  {
+    id: 'endpoint-1',
+    name: 'OpenAI 官方端点',
+    baseUrl: 'https://api.openai.com/v1',
+    provider: Provider.OPENAI,
+    models: [models[0], models[1], models[2]],
+    businesses: [mockBusinesses[0], mockBusinesses[1], mockBusinesses[2]],
+    enabled: true,
+    createdAt: '2024-01-10T08:00:00Z',
+    createdBy: mockUsers[0],
+    updatedAt: '2024-01-25T10:00:00Z',
+    description: 'OpenAI 官方 API 端点',
+    stats: {
+      totalApiKeys: 5,
+      activeApiKeys: 4,
+      totalRequests: 125430,
+      successRate: 99.2,
+    },
+  },
+  {
+    id: 'endpoint-2',
+    name: 'Azure OpenAI 端点',
+    baseUrl: 'https://your-resource.openai.azure.com',
+    provider: Provider.AZURE,
+    models: [models[0], models[2]],
+    businesses: [mockBusinesses[0], mockBusinesses[3]],
+    enabled: true,
+    createdAt: '2024-01-12T09:00:00Z',
+    createdBy: mockUsers[0],
+    updatedAt: '2024-01-26T14:00:00Z',
+    description: 'Azure OpenAI 服务端点',
+    stats: {
+      totalApiKeys: 3,
+      activeApiKeys: 3,
+      totalRequests: 85620,
+      successRate: 98.8,
+    },
+  },
+  {
+    id: 'endpoint-3',
+    name: 'Claude API 端点',
+    baseUrl: 'https://api.anthropic.com/v1',
+    provider: Provider.CLAUDE,
+    models: [models[3], models[4], models[5]],
+    businesses: [mockBusinesses[1], mockBusinesses[2]],
+    enabled: true,
+    createdAt: '2024-01-15T10:00:00Z',
+    createdBy: mockUsers[1],
+    description: 'Anthropic Claude API 端点',
+    stats: {
+      totalApiKeys: 4,
+      activeApiKeys: 3,
+      totalRequests: 65890,
+      successRate: 99.5,
+    },
+  },
+  {
+    id: 'endpoint-4',
+    name: 'Gemini API 端点',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1',
+    provider: Provider.GEMINI,
+    models: [models[6], models[7]],
+    businesses: [mockBusinesses[3]],
+    enabled: true,
+    createdAt: '2024-01-18T11:00:00Z',
+    createdBy: mockUsers[0],
+    description: 'Google Gemini API 端点',
+    stats: {
+      totalApiKeys: 2,
+      activeApiKeys: 2,
+      totalRequests: 32450,
+      successRate: 97.3,
+    },
+  },
+  {
+    id: 'endpoint-5',
+    name: '第三方代理端点',
+    baseUrl: 'https://api.proxy-service.com/v1',
+    provider: Provider.CUSTOM,
+    models: [models[0], models[3]],
+    businesses: [mockBusinesses[1]],
+    enabled: false,
+    createdAt: '2024-01-20T15:00:00Z',
+    createdBy: mockUsers[1],
+    description: '第三方 API 代理服务（测试中）',
+    stats: {
+      totalApiKeys: 1,
+      activeApiKeys: 0,
+      totalRequests: 1230,
+      successRate: 85.5,
+    },
+  },
+];
+
+export { models };

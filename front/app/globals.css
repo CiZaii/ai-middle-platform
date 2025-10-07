@@ -1,0 +1,200 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 主色渐变 - 蓝紫色 */
+    --primary-start: 99 102 241; /* #6366f1 Indigo-500 */
+    --primary-end: 139 92 246; /* #8b5cf6 Violet-500 */
+
+    --gradient-primary: linear-gradient(
+      135deg,
+      rgb(var(--primary-start)) 0%,
+      rgb(var(--primary-end)) 100%
+    );
+    --gradient-primary-hover: linear-gradient(
+      135deg,
+      rgb(99 102 241 / 0.9) 0%,
+      rgb(139 92 246 / 0.9) 100%
+    );
+
+    /* 辅色 - 点缀色 */
+    --accent-cyan: 34 211 238; /* #22d3ee Cyan-400 */
+    --accent-pink: 236 72 153; /* #ec4899 Pink-500 */
+    --accent-amber: 251 191 36; /* #fbbf24 Amber-400 */
+
+    /* 语义色 */
+    --success: 34 197 94; /* #22c55e Green-500 */
+    --warning: 251 146 60; /* #fb923c Orange-400 */
+    --error: 239 68 68; /* #ef4444 Red-500 */
+    --info: 59 130 246; /* #3b82f6 Blue-500 */
+
+    /* 浅色模式基础色 */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 262.1 83.3% 57.8%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 262.1 83.3% 57.8%;
+    --radius: 0.5rem;
+
+    /* 阴影 */
+    --shadow-glass: 0 8px 32px 0 rgba(99, 102, 241, 0.15);
+
+    /* 字体 */
+    --font-sans: "Inter", -apple-system, "PingFang SC", sans-serif;
+    --font-mono: "JetBrains Mono", "Consolas", monospace;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 262.1 83.3% 57.8%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 262.1 83.3% 57.8%;
+
+    --shadow-glass: 0 8px 32px 0 rgba(99, 102, 241, 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
+
+/* Katex 样式支持 */
+@import "katex/dist/katex.min.css";
+
+/* Highlight.js 样式 */
+@import "highlight.js/styles/github-dark.min.css";
+
+/* React Flow 样式 */
+@import "reactflow/dist/style.css";
+
+/* 自定义滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 文件卡片悬浮动画 */
+@layer components {
+  .file-card {
+    transition: all 0.3s ease;
+    background: linear-gradient(145deg, #ffffff, #f5f7fa);
+  }
+
+  .file-card:hover {
+    transform: translateY(-3px) scale(1.01);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+
+  /* 侧边栏项目 */
+  .sidebar-item {
+    transition: all 0.3s ease;
+  }
+
+  .sidebar-item:hover {
+    background-color: rgba(37, 99, 235, 0.1);
+  }
+
+  .sidebar-item.active {
+    background-color: rgba(37, 99, 235, 0.2);
+    border-left: 3px solid #2563eb;
+  }
+
+  /* 骨架加载动画 */
+  @keyframes skeleton-loading {
+    0% {
+      background-position: -200px 0;
+    }
+    100% {
+      background-position: calc(200px + 100%) 0;
+    }
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200px 100%;
+    animation: skeleton-loading 1.5s infinite;
+  }
+
+  /* 右侧面板动画 */
+  .right-panel {
+    transition: transform 0.3s ease-in-out, width 0.3s ease-in-out;
+  }
+
+  .right-panel.collapsed {
+    transform: translateX(100%);
+    width: 0;
+  }
+}
+
+/* 平滑滚动 */
+html {
+  scroll-behavior: smooth;
+}
+
+/* 页面淡入动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out;
+}

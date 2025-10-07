@@ -1,0 +1,137 @@
+# Spring Boot application base settings
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  application:
+    name: ai-middle-platform
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://104.129.12.227:5432/ai_middle_platform
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:123456}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  data:
+    redis:
+      host: 211.159.174.70
+      port: 6379
+      password: ${REDIS_PASSWORD:123456}
+      database: 0
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+          max-wait: -1ms
+      timeout: 5000ms
+
+  rabbitmq:
+    host: 211.159.174.70
+    port: 5672
+    username: ${RABBITMQ_USERNAME:admin}
+    password: ${RABBITMQ_PASSWORD:123456}
+    virtual-host: /
+    listener:
+      simple:
+        acknowledge-mode: auto
+        concurrency: 5
+        max-concurrency: 10
+        retry:
+          enabled: false
+          max-attempts: 3
+          initial-interval: 1000ms
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+  neo4j:
+    uri: bolt://211.159.174.70:1111
+    authentication:
+      username: neo4j
+      password: ${NEO4J_PASSWORD:neo4j123}
+    connection-timeout: 30s
+# Centralized file storage configuration
+
+dromara:
+  x-file-storage:
+    default-platform: minio-1
+    thumbnail-suffix: ".min.jpg"
+    minio:
+      - platform: minio-1
+        enable-storage: true
+        access-key: ${MINIO_ACCESS_KEY:zang}
+        secret-key: ${MINIO_SECRET_KEY:zangzang}
+        end-point: ${MINIO_ENDPOINT:http://211.159.174.70:8086}
+        bucket-name: ${MINIO_BUCKET:ai-middle-platform}
+        domain: ${MINIO_DOMAIN:http://211.159.174.70:8086}
+        base-path: /minio/
+
+# ORM and persistence configuration
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.ai.middle.platform.entity.po
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# Domain-specific application settings
+app:
+  jwt:
+    secret: ${JWT_SECRET:your-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
+    expiration: 86400000
+    refresh-expiration: 604800000
+  file:
+    max-size: 104857600
+    allowed-types: pdf,docx,doc,jpg,jpeg,png
+    temp-dir: /tmp/ai-middle-platform
+  ocr:
+    chunk-size: 1000
+    overlap: 200
+    timeout: 300000
+  vector:
+    dimension: 1536
+    batch-size: 50
+  task:
+    retry-times: 3
+    retry-delay: 5000
+    timeout: 600000
+
+# Logging strategy shared across services
+logging:
+  level:
+    root: INFO
+    com.ai.middle.platform: DEBUG
+    org.springframework.data.neo4j: INFO
+    org.springframework.security: INFO
+    org.springframework.web: INFO
+    com.baomidou.mybatisplus: INFO
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n'
+  file:
+    name: logs/application.log
+    max-size: 10MB
+    max-history: 30
+
+# Server runtime defaults
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
